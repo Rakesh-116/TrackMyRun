@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="description" content="Private, offline run tracker for 5K training. No accounts, no analytics, no uploads.">
+  <title>TrackMyRun</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>TrackMyRun</h1>
+    <button id="btn-theme" class="icon-btn" type="button" aria-label="Switch light and dark theme">Theme</button>
+  </header>
+
+  <main>
+    <!-- RUN RECORDER -->
+    <section id="view-run" class="view" aria-label="Run recorder">
+      <p id="race-countdown" class="race-countdown" hidden></p>
+
+      <div class="card draft-card" id="draft-card" hidden>
+        <h2>Unfinished run found</h2>
+        <p id="draft-text" class="small"></p>
+        <div class="controls three">
+          <button id="draft-resume" class="btn btn-primary" type="button">Resume</button>
+          <button id="draft-save" class="btn" type="button">Save as run</button>
+          <button id="draft-discard" class="btn btn-danger" type="button">Discard</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="label">Goal distance</div>
+        <div class="seg" id="seg-goal" role="group" aria-label="Goal distance">
+          <button type="button" data-goal="2">2 km</button>
+          <button type="button" data-goal="3">3 km</button>
+          <button type="button" data-goal="5">5 km</button>
+          <button type="button" data-goal="10">10 km</button>
+        </div>
+        <div class="label" style="margin-top:14px">Start strategy</div>
+        <div class="seg" id="seg-strategy" role="group" aria-label="Start strategy">
+          <button type="button" data-strategy="even">Even</button>
+          <button type="button" data-strategy="fast">Fast start</button>
+          <button type="button" data-strategy="slow">Slow start</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="timer" id="timer" aria-live="off">0:00</div>
+        <div class="status" id="gps-status">Ready. Tap Start to begin.</div>
+        <div class="wake" id="wake-indicator" hidden>Screen kept awake</div>
+        <div class="banner" id="gps-banner" hidden>GPS is unavailable, so only the timer is running. Enter the distance when you finish.</div>
+        <div class="banner" id="lock-warning" hidden>
+          <span id="lock-warning-text"></span>
+          <button id="lock-dismiss" class="link-btn" type="button">OK</button>
+        </div>
+        <div class="progress" aria-hidden="true"><div id="progress-bar"></div></div>
+        <div class="grid3">
+          <div class="metric">
+            <span class="m-label">Distance km</span>
+            <span class="m-value" id="m-dist">0.00</span>
+          </div>
+          <div class="metric">
+            <span class="m-label">Current /km</span>
+            <span class="m-value" id="m-pace">--:--</span>
+            <span class="m-unit" id="m-target"></span>
+          </div>
+          <div class="metric">
+            <span class="m-label">Avg /km</span>
+            <span class="m-value" id="m-avg">--:--</span>
+          </div>
+        </div>
+        <div class="metric proj">
+          <span class="m-label">Projected finish for goal</span>
+          <span class="m-value" id="m-proj">--:--</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="btn-primary" class="btn btn-primary" type="button">Start</button>
+        <button id="btn-finish" class="btn btn-danger" type="button" disabled>Finish</button>
+      </div>
+
+      <div class="card">
+        <div class="label">Live path</div>
+        <div id="track" class="track"></div>
+      </div>
+
+      <div class="card">
+        <div class="label">Splits</div>
+        <ul id="splits" class="splits"></ul>
+      </div>
+
+      <form id="finish-panel" class="card form-stack" hidden>
+        <h2>Save this run</h2>
+        <div class="grid2">
+          <label>Distance (km)
+            <input id="fin-distance" type="number" step="0.01" min="0" inputmode="decimal" required>
+          </label>
+          <label>Time (mm:ss or h:mm:ss)
+            <input id="fin-time" type="text" inputmode="numeric" required>
+          </label>
+        </div>
+        <label>Notes
+          <textarea id="fin-notes" rows="2" maxlength="500" placeholder="Felt strong, windy, shoes..."></textarea>
+        </label>
+        <div class="controls">
+          <button type="submit" class="btn btn-primary">Save run</button>
+          <button type="button" id="btn-discard" class="btn">Discard</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- SESSION LOG -->
+    <section id="view-log" class="view" aria-label="Session log" hidden>
+      <details class="card">
+        <summary>+ Add a manual run (treadmill or GPS failed)</summary>
+        <form id="manual-form" class="form-stack">
+          <div class="grid2">
+            <label>Date
+              <input type="date" id="man-date" required>
+            </label>
+            <label>Distance (km)
+              <input type="number" id="man-distance" step="0.01" min="0.01" inputmode="decimal" required>
+            </label>
+          </div>
+          <label>Time (mm:ss or h:mm:ss)
+            <input type="text" id="man-time" inputmode="numeric" required>
+          </label>
+          <div class="grid2">
+            <label>Goal
+              <select id="man-goal">
+                <option value="2">2 km</option>
+                <option value="3">3 km</option>
+                <option value="5" selected>5 km</option>
+                <option value="10">10 km</option>
+              </select>
+            </label>
+            <label>Strategy
+              <select id="man-strategy">
+                <option value="even">Even</option>
+                <option value="fast">Fast start</option>
+                <option value="slow">Slow start</option>
+              </select>
+            </label>
+          </div>
+          <label>Notes
+            <textarea id="man-notes" rows="2" maxlength="500"></textarea>
+          </label>
+          <button class="btn btn-primary" type="submit">Add run</button>
+        </form>
+      </details>
+      <div id="history" class="history"></div>
+    </section>
+
+    <!-- STATS -->
+    <section id="view-stats" class="view" aria-label="Stats" hidden>
+      <h2 class="section-h">Personal bests</h2>
+      <div class="grid2" id="pb-grid"></div>
+
+      <div class="card">
+        <div class="label">Predicted race times (Riegel, exponent 1.06)</div>
+        <div id="predict"></div>
+      </div>
+
+      <div class="card">
+        <div class="label">Start strategy comparison (runs of 1.8 km or more)</div>
+        <div id="strategy-table"></div>
+      </div>
+
+      <div class="card">
+        <div class="label">Pace trend (higher on the chart means faster)</div>
+        <div id="trend"></div>
+      </div>
+
+      <div class="card">
+        <div class="label">Weekly distance, last 12 weeks</div>
+        <div id="weekly"></div>
+      </div>
+    </section>
+
+    <!-- RACE PLANNER -->
+    <section id="view-plan" class="view" aria-label="Race planner" hidden>
+      <div class="card form-stack">
+        <h2>Race day and voice</h2>
+        <div class="grid2">
+          <label>Race date
+            <input id="set-race-date" type="date">
+          </label>
+          <label>Race distance
+            <select id="set-race-dist">
+              <option value="2">2 km</option>
+              <option value="3">3 km</option>
+              <option value="5" selected>5 km</option>
+              <option value="10">10 km</option>
+            </select>
+          </label>
+        </div>
+        <label>Target time for the race distance (mm:ss)
+          <input id="set-race-target" type="text" inputmode="numeric" placeholder="25:00">
+        </label>
+        <label class="check-row" id="voice-row">
+          <input id="set-voice" type="checkbox"> Voice announcements at each km (off by default)
+        </label>
+        <p class="muted small">With a target set, the voice also says whether you are ahead or behind the plan, for runs at the race distance.</p>
+      </div>
+
+      <div class="card form-stack">
+        <h2>Race planner</h2>
+        <div class="grid2">
+          <label>Distance (km)
+            <input id="plan-dist" type="number" value="5" step="0.1" min="0.1" inputmode="decimal">
+          </label>
+          <label>Target time
+            <input id="plan-target" type="text" value="25:00" inputmode="numeric">
+          </label>
+        </div>
+        <div class="grid2">
+          <label>Strategy
+            <select id="plan-strategy">
+              <option value="even">Even</option>
+              <option value="fast">Fast start</option>
+              <option value="slow">Slow start</option>
+            </select>
+          </label>
+          <label>Ramp size (s/km)
+            <input id="plan-delta" type="number" value="10" min="0" max="30" step="1" inputmode="numeric">
+          </label>
+        </div>
+        <p class="muted small">Fast start runs the first km about the ramp size quicker than average and the last km about that much slower, with a linear change in between. Slow start is the reverse. Splits always add up to the target.</p>
+      </div>
+      <div class="card" id="plan-out"></div>
+    </section>
+
+    <!-- DATA -->
+    <section id="view-data" class="view" aria-label="Backup and data" hidden>
+      <div class="card form-stack">
+        <h2>Download reports</h2>
+        <p class="small">Files are created in your browser and never uploaded. Pick a format:</p>
+        <div class="grid2">
+          <button id="dl-report-md" class="btn btn-primary" type="button">Report (.md)</button>
+          <button id="dl-report-html" class="btn" type="button">Printable report (.html)</button>
+          <button id="dl-runs-csv" class="btn" type="button">Runs (.csv)</button>
+          <button id="dl-splits-csv" class="btn" type="button">Splits (.csv)</button>
+        </div>
+        <p class="muted small">Open the .csv files in Excel or Google Sheets. Open the printable .html in a browser and choose Print, then Save as PDF.</p>
+        <button id="dl-backup-json" class="btn" type="button">Full backup (.json)</button>
+      </div>
+
+      <div class="card form-stack">
+        <h2>Backup and restore</h2>
+        <p class="muted small" id="storage-status"></p>
+        <p class="small">Your runs stay in this browser only. Export a backup regularly. To restore or move to another device, paste a backup here and press Import. Exports include GPS paths, so keep them private.</p>
+        <textarea id="data-text" rows="8" class="mono" placeholder="Export output appears here, or paste a backup to import"></textarea>
+        <div class="controls three">
+          <button id="btn-export" class="btn" type="button">Export</button>
+          <button id="btn-copy" class="btn" type="button">Copy</button>
+          <button id="btn-import" class="btn" type="button">Import (merge)</button>
+        </div>
+        <button id="btn-clear" class="btn btn-danger" type="button">Delete all runs on this device</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Sections">
+    <button type="button" data-view="run" aria-pressed="true">Run</button>
+    <button type="button" data-view="log" aria-pressed="false">Log</button>
+    <button type="button" data-view="stats" aria-pressed="false">Stats</button>
+    <button type="button" data-view="plan" aria-pressed="false">Plan</button>
+    <button type="button" data-view="data" aria-pressed="false">Data</button>
+  </nav>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="core.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
