@@ -266,10 +266,21 @@ h2 { font-size: 18px; margin: 0 0 8px; }
   stroke-linejoin: round;
   stroke-linecap: round;
 }
-.dot-start { fill: var(--text); }
+.dot-start { fill: #9aa3b2; }
 .dot-end { fill: var(--danger); }
 .axis { fill: var(--muted); font-size: 11px; }
 .axis-line { stroke: var(--border); stroke-width: 1; }
+.scale-line { stroke: var(--text); stroke-width: 2; }
+.north-arrow { fill: var(--text); }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 8px; }
+.legend-dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-left: 6px; }
+.legend-start { background: #9aa3b2; }
+.legend-you { background: var(--danger); }
+
+.map-row { display: grid; gap: 6px; margin-top: 12px; }
+.map-row .btn { min-height: 44px; font-size: 15px; justify-self: start; padding: 0 14px; }
+.run-map { height: 260px; border-radius: 12px; overflow: hidden; margin-top: 6px; border: 1px solid var(--border); }
+.run-map-canvas { height: 100%; width: 100%; }
 
 .splits {
   list-style: none;

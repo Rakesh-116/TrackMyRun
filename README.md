@@ -86,16 +86,21 @@ CSV files include a UTF-8 byte-order mark, so Excel shows accents and symbols co
 - **Screen-lock warning:** if the page was hidden during a run and no GPS point arrived for more than 20 s, a warning says how long tracking may have paused. The missed time is never added as distance.
 - **Voice announcements (off by default, Plan tab):** at each km the app says the split and total time. With a race target set, it also says how many seconds ahead or behind the plan you are (for runs at the race distance). It says "Goal reached" at the goal.
 - **Race day (Plan tab):** race date, race distance, and target time. The Run tab shows the days to race and the target pace per km next to your live pace. The race date and target are included in backups and reports.
+- **Stationary drift filter:** when you stand still, GPS wanders by about its accuracy (often 5 to 20 m). A move must exceed the reported accuracy to count, and a device speed below 0.5 m/s is treated as standing still. The status line says "Standing still (GPS drift ignored)". If the device reports speed above 1 m/s, small moves count.
+- **Live path:** a north arrow, a scale bar (for example 25 m or 100 m), and a legend (grey = start, red = you). The view is at least 100 m wide, so small drift stays small on screen.
+- **Map for saved runs (optional):** each saved run with a GPS path has a "Show map" button in the Log tab. It loads Leaflet (from this app's own files) and OpenStreetMap tiles only when you press it. Live tracking never loads a map or makes a network request.
 - **Log, Stats, Plan, Data:** manual entry, personal bests, Riegel predictions, strategy comparison, pace trend, weekly distance, race planner, and backup and reports (Markdown, printable HTML, CSV, JSON).
 
 ## Test on your phone (do this before race day)
 
 1. Deploy to Vercel, then open the `https://` address in Chrome on your phone.
 2. Tap Start. Allow the location prompt when it appears. Wait until the status says "GPS good" before you start running.
-3. Walk a known distance outdoors, such as a 400 m track lap or a 1 km stretch measured on a map. Compare the app's distance with the real one. Within about 3 to 5% is normal for phone GPS.
-4. Repeat once with the screen dimmed but on. Then switch to another app for about 30 seconds and come back. Check whether the lock warning appears and whether the distance is short.
-5. Tap Finish, check the numbers, and save. Then export the Markdown report from the Data tab.
-6. Optional: turn on voice announcements in the Plan tab, and set the race date and target. Check that you hear each km and the plan comparison.
+3. Stand still for a minute. The distance should not rise, and the status should say "Standing still". If it rises, note the status line and accuracy.
+4. Walk a known distance outdoors, such as a 400 m track lap or a 1 km stretch measured on a map. Compare the app's distance with the real one. Within about 3 to 5% is normal for phone GPS.
+5. Repeat once with the screen dimmed but on. Then switch to another app for about 30 seconds and come back. Check whether the lock warning appears and whether the distance is short.
+6. Tap Finish, check the numbers, and save. Then export the Markdown report from the Data tab.
+7. Optional: turn on voice announcements in the Plan tab, and set the race date and target. Check that you hear each km and the plan comparison.
+8. Open the Log tab, tap Show map on the saved run, and check that the route lines up with the streets you walked.
 
 If the distance reads short, or points drop, note when it happened (screen off, app switch, under trees) and report it.
 
@@ -126,5 +131,7 @@ If the distance reads short, or points drop, note when it happened (screen off, 
 Change the files, then bump `CACHE` in `sw.js` (for example to `trackmyrun-v2`). Pushing to GitHub or running `vercel --prod` redeploys it.
 
 ## Tests
+
+The headless-browser tests cover the drift filter, path scale and north-arrow geometry, and the saved-run map (loaded on demand; a live run loads none of it), plus everything above.
 
 `core.js` is pure logic with no DOM. The checks used during development covered the GPS filter, time parsing, the planner (sums and ramps), Riegel, personal bests, strategy stats, weekly totals, storage failure paths, and the CSV/Markdown/HTML report output. They can be reproduced by loading `core.js` in a page and calling `window.TMR`.

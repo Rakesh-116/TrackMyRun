@@ -206,11 +206,13 @@
   /** Called for every position update from the browser. */
   function onFix(pos) {
     if (session.state !== 'running') return; // ignore fixes while paused, idle or finished
-    const { latitude: lat, longitude: lon, accuracy } = pos.coords;
-    const res = session.filter.feed({ lat, lon, accuracy, t: pos.timestamp || Date.now() });
+    const { latitude: lat, longitude: lon, accuracy, speed } = pos.coords;
+    const res = session.filter.feed({ lat, lon, accuracy, speed, t: pos.timestamp || Date.now() });
 
     if (!res.accepted) {
       if (res.reason === 'accuracy') setGpsStatus(C.gpsStatusFor(accuracy));
+      // Small wobbles while stopped (drift) are ignored and shown as standing still.
+      if (res.reason === 'stationary' || res.reason === 'jitter') setGpsStatus('Standing still (GPS drift ignored)');
       return;
     }
 
@@ -515,35 +517,88 @@
    * Draws the path as an SVG polyline, scaled to fit. No map tiles, so no
    * third party gets location data. Longitude is scaled by cos(latitude).
    */
+  /**
+   * Draws the path as an SVG with a north arrow and a scale bar. No map tiles are
+   * loaded, so no third party gets location data. The view is at least 100 m wide,
+   * so small GPS drift stays small on screen (see C.projectPath in core.js).
+   */
   function pathSvg(points, cls) {
-    const W = 300, H = 300, pad = 18;
+    const W = 300, H = 300, pad = 22;
     const klass = cls ? ` class="${cls}"` : '';
-    if (!points || points.length < 2) {
+    const P = C.projectPath(points, W, H, pad, 100);
+    if (!P) {
       return `<svg viewBox="0 0 ${W} ${H}"${klass} role="img" aria-label="No path yet"><text x="150" y="150" text-anchor="middle" class="axis">No path yet</text></svg>`;
     }
-    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-    points.forEach(([la, lo]) => {
-      minLat = Math.min(minLat, la); maxLat = Math.max(maxLat, la);
-      minLon = Math.min(minLon, lo); maxLon = Math.max(maxLon, lo);
-    });
-    const kx = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
-    const w = (maxLon - minLon) * kx || 1e-9;
-    const h = (maxLat - minLat) || 1e-9;
-    const scale = Math.min((W - 2 * pad) / w, (H - 2 * pad) / h);
-    const offX = (W - w * scale) / 2;
-    const offY = (H - h * scale) / 2;
-    const xy = ([la, lo]) => [offX + (lo - minLon) * kx * scale, offY + (maxLat - la) * scale];
-    const pts = points.map(xy).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
-    const [sx, sy] = xy(points[0]);
-    const [ex, ey] = xy(points[points.length - 1]);
-    return `<svg viewBox="0 0 ${W} ${H}"${klass} role="img" aria-label="Run path">` +
-      `<polyline points="${pts}" class="path-line"/>` +
+    const line = P.pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+    const [sx, sy] = P.pts[0];
+    const [ex, ey] = P.pts[P.pts.length - 1];
+    const bx = 16, by = H - 18, bEnd = (bx + P.barPx).toFixed(1);
+    const barLabel = P.barM >= 1000 ? `${P.barM / 1000} km` : `${P.barM} m`;
+    return `<svg viewBox="0 0 ${W} ${H}"${klass} role="img" aria-label="Run path, ${barLabel} scale bar">` +
+      `<polyline points="${line}" class="path-line"/>` +
       `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="6" class="dot-start"/>` +
       `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="6" class="dot-end"/>` +
+      `<g class="north" transform="translate(${W - 18},26)"><path d="M0,-12 L6,7 L0,3 L-6,7 Z" class="north-arrow"/>` +
+      `<text y="20" text-anchor="middle" class="axis">N</text></g>` +
+      `<g class="scale"><line x1="${bx}" y1="${by}" x2="${bEnd}" y2="${by}" class="scale-line"/>` +
+      `<line x1="${bx}" y1="${by - 4}" x2="${bx}" y2="${by + 4}" class="scale-line"/>` +
+      `<line x1="${bEnd}" y1="${by - 4}" x2="${bEnd}" y2="${by + 4}" class="scale-line"/>` +
+      `<text x="${bx}" y="${by - 7}" class="axis">${barLabel}</text></g>` +
       `</svg>`;
   }
 
   // ---------- session log ----------
+
+  // ---------- optional map for saved runs (loaded only when asked) ----------
+  // The map library and OpenStreetMap tiles are requested only when you press
+  // "Show map" on a saved run. Nothing is loaded during a live run.
+
+  let leafletPromise = null;
+
+  function loadLeaflet() {
+    if (window.L) return Promise.resolve(window.L);
+    if (leafletPromise) return leafletPromise;
+    leafletPromise = new Promise((resolve, reject) => {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'vendor/leaflet/leaflet.css';
+      document.head.appendChild(css);
+      const js = document.createElement('script');
+      js.src = 'vendor/leaflet/leaflet.js';
+      js.onload = () => resolve(window.L);
+      js.onerror = () => { leafletPromise = null; reject(new Error('Map library failed to load')); };
+      document.head.appendChild(js);
+    });
+    return leafletPromise;
+  }
+
+  function toggleRunMap(runId) {
+    const host = document.querySelector(`[data-map-host="${CSS.escape(runId)}"]`);
+    const run = runs.find((r) => r.id === runId);
+    if (!host || !run) return;
+    if (!host.hidden) { host.hidden = true; return; }
+    host.hidden = false;
+    if (host.dataset.ready) return;
+    host.textContent = 'Loading map...';
+    loadLeaflet().then((L) => {
+      host.textContent = '';
+      const canvas = document.createElement('div');
+      canvas.className = 'run-map-canvas';
+      host.appendChild(canvas);
+      const map = L.map(canvas);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+      const route = L.polyline(run.path, { color: '#22c55e', weight: 4 }).addTo(map);
+      L.circleMarker(run.path[0], { radius: 6, color: '#9aa3b2', fillColor: '#9aa3b2', fillOpacity: 1 }).addTo(map);
+      L.circleMarker(run.path[run.path.length - 1], { radius: 6, color: '#ef4444', fillColor: '#ef4444', fillOpacity: 1 }).addTo(map);
+      map.fitBounds(route.getBounds(), { padding: [20, 20] });
+      host.dataset.ready = '1';
+    }).catch(() => {
+      host.textContent = 'Could not load the map. Check your connection and try again.';
+    });
+  }
 
   function runCardHtml(r) {
     const km = C.runKm(r);
@@ -575,6 +630,11 @@
       </div>
       ${splits}
       ${r.notes ? `<p class="notes">${esc(r.notes)}</p>` : ''}
+      ${r.path.length > 1 ? `<div class="map-row">
+        <button type="button" class="btn" data-map="${esc(r.id)}">Show map</button>
+        <p class="muted small">Loads map tiles from openstreetmap.org. Your route stays on this device.</p>
+        <div class="run-map" data-map-host="${esc(r.id)}" hidden></div>
+      </div>` : ''}
       <div class="run-actions"><button type="button" class="btn btn-danger" data-delete="${esc(r.id)}">Delete</button></div>
     </article>`;
   }
@@ -588,6 +648,8 @@
   }
 
   $('#history').addEventListener('click', (e) => {
+    const mapId = e.target.dataset && e.target.dataset.map;
+    if (mapId) { toggleRunMap(mapId); return; }
     const id = e.target.dataset && e.target.dataset.delete;
     if (!id) return;
     if (!confirm('Delete this run? This cannot be undone.')) return;

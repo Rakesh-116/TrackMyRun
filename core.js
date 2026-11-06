@@ -16,7 +16,13 @@
     maxAccuracyM: 30,   // ignore fixes whose reported accuracy is worse than this
     minMoveM: 3,        // moves smaller than this are GPS jitter and add no distance
     maxSpeedMps: 9,     // a jump implying more than this speed is treated as bad data
-    reanchorAfter: 5    // after this many speed rejections in a row, trust the new fix
+    reanchorAfter: 5,   // after this many speed rejections in a row, trust the new fix
+    // Stationary drift: a move must be larger than driftFactor x reported accuracy,
+    // because a phone's position wanders by about its accuracy while standing still.
+    // 1.0 (not 0.6) so that wander up to the reported accuracy adds no distance.
+    driftFactor: 1.0,
+    stationarySpeedMps: 0.5, // device reports speed below this: standing still
+    movingSpeedMps: 1.0      // device reports speed above this: moving, so trust small moves
   };
 
   const RIEGEL_EXPONENT = 1.06;
@@ -65,8 +71,14 @@
           last = p;
           return { accepted: true, reason: 'anchor', distance: 0 };
         }
+        // If the device reports speed, use it: near-zero speed means standing still.
+        const speed = Number.isFinite(p.speed) ? p.speed : null;
+        if (speed !== null && speed < cfg.stationarySpeedMps) return reject('stationary');
+
         const d = haversine(last.lat, last.lon, p.lat, p.lon);
-        if (d < cfg.minMoveM) return reject('jitter');
+        const threshold = Math.max(cfg.minMoveM, cfg.driftFactor * p.accuracy);
+        const moving = speed !== null && speed > cfg.movingSpeedMps;
+        if (!moving && d < threshold) return reject('jitter');
 
         const dt = (p.t - last.t) / 1000;
         if (dt > 0 && d / dt > cfg.maxSpeedMps) {
@@ -594,6 +606,41 @@ ${html}
 `;
   }
 
+  // ---------- path drawing geometry ----------
+
+  const M_PER_DEG_LAT = 111320;
+
+  /**
+   * Maps lat/lon points into a square W x H box in metres, with equal scale on both axes
+   * (longitude is scaled by cos(latitude)). The view is never narrower than minSpanM, so
+   * small GPS drift stays small on screen. Returns null if there are no points.
+   */
+  function projectPath(points, W, H, pad, minSpanM) {
+    if (!points || !points.length) return null;
+    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    points.forEach(([la, lo]) => {
+      minLat = Math.min(minLat, la); maxLat = Math.max(maxLat, la);
+      minLon = Math.min(minLon, lo); maxLon = Math.max(maxLon, lo);
+    });
+    const kx = Math.cos(toRad((minLat + maxLat) / 2));
+    const wM = (maxLon - minLon) * kx * M_PER_DEG_LAT;
+    const hM = (maxLat - minLat) * M_PER_DEG_LAT;
+    const span = Math.max(wM, hM, minSpanM || 100);
+    const pxPerM = Math.min(W - 2 * pad, H - 2 * pad) / span;
+    const cx = (minLon + maxLon) / 2;
+    const cy = (minLat + maxLat) / 2;
+    const pts = points.map(([la, lo]) => [
+      W / 2 + (lo - cx) * kx * M_PER_DEG_LAT * pxPerM,
+      H / 2 - (la - cy) * M_PER_DEG_LAT * pxPerM
+    ]);
+    // Scale bar: the longest "nice" length that is at most a quarter of the view.
+    const nice = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000];
+    const target = span * 0.25;
+    let barM = nice[0];
+    nice.forEach((n) => { if (n <= target) barM = n; });
+    return { pts, pxPerM, spanM: span, barM, barPx: barM * pxPerM };
+  }
+
   // ---------- settings: race day and voice ----------
 
   const SETTINGS_KEY = 'trackmyrun.settings';
@@ -779,7 +826,7 @@ ${html}
   }
 
   const api = {
-    runsToCsv, splitsToCsv, buildReport, reportToMarkdown, reportToHtml,
+    runsToCsv, splitsToCsv, buildReport, reportToMarkdown, reportToHtml, projectPath,
     normalizeSettings, loadSettings, saveSettings, daysUntil, raceSummary, raceTargetPace,
     planDeltaAt, gpsStatusFor, spokenDuration,
     makeDraft, parseDraft, saveDraft, loadDraft, clearDraft, DRAFT_KEY, SETTINGS_KEY,

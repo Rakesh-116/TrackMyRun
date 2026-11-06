@@ -4,7 +4,7 @@
  * it in the background, so the next load gets the newest version.
  * Bump CACHE when you change the list of files below.
  */
-const CACHE = 'trackmyrun-v2';
+const CACHE = 'trackmyrun-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -14,7 +14,9 @@ const ASSETS = [
   './manifest.webmanifest',
   './icon.svg',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './vendor/leaflet/leaflet.js',
+  './vendor/leaflet/leaflet.css'
 ];
 
 self.addEventListener('install', (event) => {
@@ -35,6 +37,8 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  // Only cache this app's own files. Map tiles and other third-party requests go straight to the network, uncached.
+  if (new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith(
     caches.open(CACHE).then((cache) =>
       cache.match(event.request).then((hit) => {
